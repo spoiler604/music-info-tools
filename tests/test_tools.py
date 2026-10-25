@@ -163,6 +163,16 @@ class FlexibleMatchingTests(unittest.TestCase):
         chosen, _ = self.choose("Song", [row()], artist="Someone Else")
         self.assertIsNone(chosen)
 
+    def test_filename_language_must_match_saved_title_language(self):
+        cases = (
+            ("English Song", "한글 제목.flac"),
+            ("한글 제목", "English Song.flac"),
+        )
+        for title, filename in cases:
+            with self.subTest(title=title, filename=filename):
+                chosen, _ = self.choose(title, [row(title)], filename=filename)
+                self.assertIsNone(chosen)
+
     def test_short_titles_and_numbered_tracks_are_not_fuzzy_matched(self):
         for source, target in (("Home", "Hope"), ("Chapter 1", "Chapter 2")):
             with self.subTest(source=source, target=target):

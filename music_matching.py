@@ -72,6 +72,19 @@ def source_titles(path: Path, metadata: dict[str, str]) -> list[str]:
                               if value.strip()))
 
 
+def filename_title(path: Path) -> str:
+    stem = strip_track_prefix(path.stem)
+    return stem.split(" - ", 1)[1].strip() if " - " in stem else stem
+
+
+def title_language(text: str) -> str:
+    if re.search(r"[\uac00-\ud7a3]", text):
+        return "ko"
+    if re.search(r"[A-Za-z]", text):
+        return "en"
+    return ""
+
+
 def title_forms(path: Path, metadata: dict[str, str]) -> list[str]:
     return list(dict.fromkeys(key for value in source_titles(path, metadata)
                               for key in (normalized(value), normalized(cleaned_title(value))) if key))
@@ -129,6 +142,10 @@ def choose_row(index: dict[str, list[dict[str, str]]], path: Path,
     sources = source_titles(path, metadata)
     ranked = []
     for row in rows:
+        file_language = title_language(filename_title(path))
+        row_language = title_language(row["트랙 이름"])
+        if file_language and row_language and file_language != row_language:
+            continue
         artist, album, conflict = context_for(row, path, metadata, album_vote)
         if conflict:
             continue
