@@ -65,16 +65,16 @@ def load_csv(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def atomic_csv(path: Path, rows: list[dict[str, object]]) -> None:
+def atomic_csv(path: Path, rows: list[dict[str, object]], *, columns=COLUMNS) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=".music-info-", suffix=".csv", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8-sig", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=COLUMNS, extrasaction="ignore")
+            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
             writer.writeheader()
             for row in rows:
-                writer.writerow({column: row.get(column, "") for column in COLUMNS})
+                writer.writerow({column: row.get(column, "") for column in columns})
         os.replace(temp, path)
     finally:
         if os.path.exists(temp):
