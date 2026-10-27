@@ -72,19 +72,6 @@ def source_titles(path: Path, metadata: dict[str, str]) -> list[str]:
                               if value.strip()))
 
 
-def filename_title(path: Path) -> str:
-    stem = strip_track_prefix(path.stem)
-    return stem.split(" - ", 1)[1].strip() if " - " in stem else stem
-
-
-def title_language(text: str) -> str:
-    if re.search(r"[\uac00-\ud7a3]", text):
-        return "ko"
-    if re.search(r"[A-Za-z]", text):
-        return "en"
-    return ""
-
-
 def title_forms(path: Path, metadata: dict[str, str]) -> list[str]:
     return list(dict.fromkeys(key for value in source_titles(path, metadata)
                               for key in (normalized(value), normalized(cleaned_title(value))) if key))
@@ -128,6 +115,22 @@ def title_score(source: str, target: str, supported: bool) -> tuple[float, str]:
     return 0.0, ""
 
 
+def track_number(path: Path, metadata: dict[str, str]) -> int | None:
+    tagged = re.match(r"\s*(\d{1,3})", metadata.get("tracknumber", ""))
+    if tagged:
+        return int(tagged[1])
+    # A visible separator or a leading zero distinguishes a track prefix from titles such as "7 rings".
+    prefixed = re.match(r"^\s*(\d{1,3})\s*[.\-_)]+\s*\S", path.stem)
+    if not prefixed:
+        prefixed = re.match(r"^\s*0(\d{1,2})\s+\S", path.stem)
+    return int(prefixed[1]) if prefixed else None
+
+
+def row_track_number(row: dict[str, str]) -> int | None:
+    match = re.match(r"\s*(\d{1,3})", row.get("트랙 번호", ""))
+    return int(match[1]) if match else None
+
+
 def choose_row(index: dict[str, list[dict[str, str]]], path: Path,
                metadata: dict[str, str], album_vote: str = "") -> tuple[dict[str, str] | None, str]:
     # Keep the original index interface; compare cleaned forms on BOTH sides.
@@ -142,10 +145,6 @@ def choose_row(index: dict[str, list[dict[str, str]]], path: Path,
     sources = source_titles(path, metadata)
     ranked = []
     for row in rows:
-        file_language = title_language(filename_title(path))
-        row_language = title_language(row["트랙 이름"])
-        if file_language and row_language and file_language != row_language:
-            continue
         artist, album, conflict = context_for(row, path, metadata, album_vote)
         if conflict:
             continue
@@ -157,7 +156,24 @@ def choose_row(index: dict[str, list[dict[str, str]]], path: Path,
         if best_score:
             ranked.append((best_score, artist, album, best_reason, row))
     if not ranked:
-        return None, "제목·아티스트·앨범으로 일치하는 곡을 찾지 못함"
+        number = track_number(path, metadata)
+        numbered = []
+        if number is not None:
+            for row in rows:
+                artist, album, conflict = context_for(row, path, metadata, album_vote)
+                if not conflict and (artist or album) and row_track_number(row) == number:
+                    numbered.append((artist, album, row))
+        if numbered:
+            best_context = max((int(item[0]) + int(item[1]) for item in numbered), default=0)
+            numbered = [item for item in numbered if int(item[0]) + int(item[1]) == best_context]
+            if len(numbered) == 1:
+                artist, album, row = numbered[0]
+                evidence = "·".join(label for value, label in ((artist, "아티스트 일치"), (album, "앨범 일치")) if value)
+                return row, f"번역 제목 대신 트랙 번호 {number} 일치; {evidence}"
+            names = " / ".join(f"{item[2]['아티스트 이름']} — {item[2]['트랙 이름']} [{item[2]['앨범 이름']}]"
+                               for item in numbered[:3])
+            return None, "같은 트랙 번호 후보가 여러 개여서 확정하지 못함: " + names
+        return None, "제목·트랙 번호·아티스트·앨범으로 일치하는 곡을 찾지 못함"
     # Prefer exact/normalized title matches over approximate matches, then use context.
     strong = [item for item in ranked if item[0] >= 0.99]
     pool = strong or ranked

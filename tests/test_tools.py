@@ -69,6 +69,12 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(metadata["artist"], "First Artist")
         self.assertEqual(metadata["title"], "Intro")
 
+    def test_track_number_is_read_from_audio_metadata(self):
+        with patch.object(apply, "require_mutagen") as mutagen:
+            mutagen.return_value.File.return_value = SimpleNamespace(tags={"tracknumber": ["2/12"]})
+            metadata = apply.read_metadata(Path("번역된 제목.flac"))
+        self.assertEqual(metadata["tracknumber"], "2/12")
+
     def test_filename_cleanup_matches_feature_and_number_prefix(self):
         index = {normalized("Song"): [row()]}
         chosen, _ = apply.choose_row(index, Path("01 - Artist - Song (feat. Guest).flac"),
@@ -163,7 +169,7 @@ class FlexibleMatchingTests(unittest.TestCase):
         chosen, _ = self.choose("Song", [row()], artist="Someone Else")
         self.assertIsNone(chosen)
 
-    def test_filename_language_must_match_saved_title_language(self):
+    def test_embedded_title_matches_even_when_filename_uses_another_language(self):
         cases = (
             ("English Song", "한글 제목.flac"),
             ("한글 제목", "English Song.flac"),
@@ -171,7 +177,24 @@ class FlexibleMatchingTests(unittest.TestCase):
         for title, filename in cases:
             with self.subTest(title=title, filename=filename):
                 chosen, _ = self.choose(title, [row(title)], filename=filename)
-                self.assertIsNone(chosen)
+                self.assertIsNotNone(chosen)
+
+    def test_translated_filename_can_match_unique_track_number_with_context(self):
+        target = row("English Song")
+        target["트랙 번호"] = "2"
+        index = {normalized(target["트랙 이름"]): [target]}
+        chosen, reason = apply.choose_row(index, Path("02 - 한글 제목.flac"),
+                                          {"title": "", "artist": "Artist", "album": "Album"})
+        self.assertEqual(chosen, target)
+        self.assertIn("번역 제목 대신 트랙 번호 2", reason)
+
+    def test_track_number_fallback_requires_artist_or_album_context(self):
+        target = row("English Song")
+        target["트랙 번호"] = "2"
+        index = {normalized(target["트랙 이름"]): [target]}
+        chosen, _ = apply.choose_row(index, Path("02 - 한글 제목.flac"),
+                                     {"title": "", "artist": "", "album": ""})
+        self.assertIsNone(chosen)
 
     def test_short_titles_and_numbered_tracks_are_not_fuzzy_matched(self):
         for source, target in (("Home", "Hope"), ("Chapter 1", "Chapter 2")):

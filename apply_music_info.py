@@ -59,7 +59,8 @@ def read_metadata(path: Path) -> dict[str, str]:
     result = {"title": first("title", "Title", "WM/Title", "TIT2"),
               "album": first("album", "WM/AlbumTitle", "TALB"),
               "artist": first("artist", "Author", "WM/Author", "TPE1", join=True),
-              "albumartist": first("albumartist", "album artist", "WM/AlbumArtist", "TPE2", join=True)}
+              "albumartist": first("albumartist", "album artist", "WM/AlbumArtist", "TPE2", join=True),
+              "tracknumber": first("tracknumber", "track", "WM/TrackNumber", "TRCK")}
     stem = strip_track_prefix(path.stem)
     if " - " in stem:
         guessed_artist, guessed_title = (part.strip() for part in stem.split(" - ", 1))
