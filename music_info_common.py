@@ -20,6 +20,11 @@ COLUMNS = (
     "앨범아트 파일",
 )
 
+OPTIONAL_MATCH_COLUMNS = (
+    "대체 트랙 이름",
+    "대체 앨범 이름",
+)
+
 
 class MusicInfoError(Exception):
     pass
@@ -57,7 +62,8 @@ def load_csv(path: Path) -> list[dict[str, str]]:
             missing = [column for column in COLUMNS if column not in (reader.fieldnames or [])]
             if missing:
                 raise MusicInfoError("CSV 필수 열이 없습니다: " + ", ".join(missing))
-            rows = [{column: (row.get(column) or "").strip() for column in COLUMNS} for row in reader]
+            optional = [column for column in OPTIONAL_MATCH_COLUMNS if column in (reader.fieldnames or [])]
+            rows = [{column: (row.get(column) or "").strip() for column in (*COLUMNS, *optional)} for row in reader]
     except OSError as exc:
         raise MusicInfoError(f"CSV를 읽지 못했습니다: {path}\n{exc}") from exc
     if not rows:

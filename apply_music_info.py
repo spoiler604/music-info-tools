@@ -123,7 +123,7 @@ def make_plan(music: Path, rows: list[dict[str, str]],
         metadata = read_metadata(path)
         row, reason = choose_row(index, path, metadata)
         preliminary.append((path, metadata, row, reason))
-        if row and not reason:
+        if row and (not reason or reason.startswith("대체 제목 일치")):
             votes.setdefault(path.parent, Counter())[row["앨범 이름"]] += 1
     grouped = {}
     for item in preliminary:

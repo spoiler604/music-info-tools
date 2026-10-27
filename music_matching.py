@@ -72,6 +72,14 @@ def source_titles(path: Path, metadata: dict[str, str]) -> list[str]:
                               if value.strip()))
 
 
+def alternate_names(value: str) -> list[str]:
+    return [part.strip() for part in re.split(r"[|\n]+", value or "") if part.strip()]
+
+
+def row_titles(row: dict[str, str]) -> list[str]:
+    return list(dict.fromkeys([row["트랙 이름"], *alternate_names(row.get("대체 트랙 이름", ""))]))
+
+
 def title_forms(path: Path, metadata: dict[str, str]) -> list[str]:
     return list(dict.fromkeys(key for value in source_titles(path, metadata)
                               for key in (normalized(value), normalized(cleaned_title(value))) if key))
@@ -82,13 +90,14 @@ def context_for(row: dict[str, str], path: Path, metadata: dict[str, str], album
     people = artist_keys(row.get("아티스트 이름", "")) | artist_keys(row.get("앨범 아티스트 이름", ""))
     artist = bool(tagged & people)
     conflict = bool(tagged and people and not artist)
-    album_name = normalized(row.get("앨범 이름", ""))
+    album_names = {normalized(value) for value in
+                   [row.get("앨범 이름", ""), *alternate_names(row.get("대체 앨범 이름", ""))] if normalized(value)}
     # Folder names can contain an artist/year prefix. Explicit album tags compare as whole values.
-    album = bool(album_name and (
-        album_name == normalized(metadata.get("album", ""))
-        or album_name == normalized(album_vote)
-        or (len(album_name) >= 4 and album_name in normalized(path.parent.name))
-        or album_name == normalized(path.parent.name)))
+    album = any(album_name == normalized(metadata.get("album", ""))
+                or album_name == normalized(album_vote)
+                or (len(album_name) >= 4 and album_name in normalized(path.parent.name))
+                or album_name == normalized(path.parent.name)
+                for album_name in album_names)
     return artist, album, conflict
 
 
@@ -150,9 +159,12 @@ def choose_row(index: dict[str, list[dict[str, str]]], path: Path,
             continue
         best_score, best_reason = 0.0, ""
         for source in sources:
-            score, reason = title_score(source, row["트랙 이름"], artist or album)
-            if score > best_score:
-                best_score, best_reason = score, reason
+            for target in row_titles(row):
+                score, reason = title_score(source, target, artist or album)
+                if score and target != row["트랙 이름"]:
+                    reason = "대체 제목 일치" + (f"; {reason}" if reason else "")
+                if score > best_score:
+                    best_score, best_reason = score, reason
         if best_score:
             ranked.append((best_score, artist, album, best_reason, row))
     if not ranked:

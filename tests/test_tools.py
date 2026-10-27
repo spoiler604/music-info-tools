@@ -9,7 +9,8 @@ from unittest.mock import patch
 import apply_music_info as apply
 import fetch_music_info as fetch
 from music_matching import strip_track_prefix
-from music_info_common import COLUMNS, MusicInfoError, atomic_csv, clean_filename, load_csv, normalized, unique_rows
+from music_info_common import (COLUMNS, OPTIONAL_MATCH_COLUMNS, MusicInfoError, atomic_csv,
+                               clean_filename, load_csv, normalized, unique_rows)
 
 
 def row(title="Song", album="Album"):
@@ -32,6 +33,15 @@ class CommonTests(unittest.TestCase):
             path.write_text("wrong\nvalue\n", encoding="utf-8")
             with self.assertRaises(MusicInfoError):
                 load_csv(path)
+
+    def test_optional_alternate_names_are_loaded(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+            path = Path(folder) / "info.csv"
+            item = row() | {"대체 트랙 이름": "노래", "대체 앨범 이름": "음반"}
+            atomic_csv(path, [item], columns=(*COLUMNS, *OPTIONAL_MATCH_COLUMNS))
+            loaded = load_csv(path)[0]
+        self.assertEqual(loaded["대체 트랙 이름"], "노래")
+        self.assertEqual(loaded["대체 앨범 이름"], "음반")
 
     def test_unique_rows_removes_exact_release_duplicate_only(self):
         rows = [row(), row(), row(album="Other Album")]
@@ -214,6 +224,18 @@ class FlexibleMatchingTests(unittest.TestCase):
             with self.subTest(title=title, filename=filename):
                 chosen, _ = self.choose(title, [row(title)], filename=filename)
                 self.assertIsNotNone(chosen)
+
+    def test_alternate_track_title_matches_tagless_translated_filename(self):
+        target = row("Light Rains") | {"대체 트랙 이름": "빛이 내리네"}
+        chosen, reason = self.choose("", [target], artist="", album="", filename="빛이 내리네.flac")
+        self.assertEqual(chosen, target)
+        self.assertIn("대체 제목 일치", reason)
+
+    def test_alternate_album_name_resolves_duplicate_primary_title(self):
+        first = row("Intro", "New Day") | {"대체 앨범 이름": "새로운 날"}
+        second = row("Intro", "Other Album")
+        chosen, _ = self.choose("Intro", [first, second], album="새로운 날")
+        self.assertEqual(chosen, first)
 
     def test_translated_filename_can_match_unique_track_number_with_context(self):
         target = row("English Song")
