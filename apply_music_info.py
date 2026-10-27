@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from music_info_common import MusicInfoError, clean_filename, default_data_root, load_csv, normalized, split_people
-from music_matching import choose_row, strip_track_prefix
+from music_matching import artist_keys, choose_row, row_track_number, strip_track_prefix, track_number
 
 
 SUPPORTED = {".mp3", ".aac", ".flac", ".m4a", ".mp4", ".opus", ".ogg", ".oga"}
@@ -69,6 +69,40 @@ def read_metadata(path: Path) -> dict[str, str]:
     return result
 
 
+def infer_translated_album(items, rows: list[dict[str, str]]) -> str:
+    """Identify a translated local album only from a complete, unique track-number signature."""
+    numbered = [(track_number(path, metadata), metadata) for path, metadata, _, _ in items]
+    numbers = [number for number, _ in numbered if number is not None]
+    if len(numbers) < 2 or len(numbers) != len(items) or len(set(numbers)) != len(numbers):
+        return ""
+    tagged_people = set()
+    local_albums = set()
+    for _, metadata in numbered:
+        tagged_people |= artist_keys(metadata.get("artist", "")) | artist_keys(metadata.get("albumartist", ""))
+        if normalized(metadata.get("album", "")):
+            local_albums.add(normalized(metadata["album"]))
+    if len(local_albums) > 1:
+        return ""
+    albums: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        albums.setdefault(row["앨범 이름"], []).append(row)
+    candidates = []
+    wanted = set(numbers)
+    for album_name, album_rows in albums.items():
+        csv_numbers = [row_track_number(row) for row in album_rows]
+        if any(number is None for number in csv_numbers) or len(set(csv_numbers)) != len(csv_numbers):
+            continue
+        if set(csv_numbers) != wanted:
+            continue
+        people = set()
+        for row in album_rows:
+            people |= artist_keys(row.get("아티스트 이름", "")) | artist_keys(row.get("앨범 아티스트 이름", ""))
+        if tagged_people and people and not tagged_people.intersection(people):
+            continue
+        candidates.append(album_name)
+    return candidates[0] if len(candidates) == 1 else ""
+
+
 def make_plan(music: Path, rows: list[dict[str, str]],
               exclude: Path | list[Path] | None = None) -> list[PlanItem]:
     music = Path(music)
@@ -91,11 +125,16 @@ def make_plan(music: Path, rows: list[dict[str, str]],
         preliminary.append((path, metadata, row, reason))
         if row and not reason:
             votes.setdefault(path.parent, Counter())[row["앨범 이름"]] += 1
+    grouped = {}
+    for item in preliminary:
+        grouped.setdefault(item[0].parent, []).append(item)
+    inferred = {folder: infer_translated_album(items, rows) for folder, items in grouped.items()}
     plan = []
     for path, metadata, row, reason in preliminary:
         if row is None:
             album_votes = votes.get(path.parent, Counter()).most_common(2)
             vote = album_votes[0][0] if album_votes and (len(album_votes) == 1 or album_votes[0][1] > album_votes[1][1]) else ""
+            vote = vote or inferred.get(path.parent, "")
             row, reason = choose_row(index, path, metadata, vote)
         plan.append(PlanItem(path, row, "ready" if row else "skip", reason))
     return plan

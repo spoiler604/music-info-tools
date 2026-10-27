@@ -94,6 +94,42 @@ class MatchingTests(unittest.TestCase):
                 plan = apply.make_plan(music, rows)
             self.assertEqual(plan[1].row["앨범 이름"], "Album B")
 
+    def test_plan_infers_unique_translated_album_from_complete_track_numbers(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+            music = Path(folder) / "번역된 앨범명"
+            music.mkdir()
+            paths = [music / f"0{number} - 번역 제목 {number}.flac" for number in range(1, 4)]
+            for path in paths:
+                path.write_bytes(b"")
+            rows = []
+            for number in range(1, 4):
+                item = row(f"English Song {number}", "English Album")
+                item["트랙 번호"] = str(number)
+                rows.append(item)
+            other = row("Other Song", "Short Album")
+            other["트랙 번호"] = "1"
+            rows.append(other)
+            metadata = {path: {"title": "", "album": "번역된 앨범명", "artist": "Artist",
+                               "albumartist": "", "tracknumber": ""} for path in paths}
+            with patch.object(apply, "read_metadata", side_effect=lambda path: metadata[path]):
+                plan = apply.make_plan(music, rows)
+            self.assertTrue(all(item.row and item.row["앨범 이름"] == "English Album" for item in plan))
+            self.assertTrue(all("번역 제목 대신 트랙 번호" in item.reason for item in plan))
+
+    def test_translated_album_signature_must_be_unique(self):
+        items = []
+        for number in (1, 2):
+            metadata = {"title": "", "album": "번역 앨범", "artist": "Artist",
+                        "albumartist": "", "tracknumber": ""}
+            items.append((Path(f"0{number} - 번역 곡.flac"), metadata, None, ""))
+        rows = []
+        for album in ("Album A", "Album B"):
+            for number in (1, 2):
+                item = row(f"Song {number}", album)
+                item["트랙 번호"] = str(number)
+                rows.append(item)
+        self.assertEqual(apply.infer_translated_album(items, rows), "")
+
     def test_backup_folder_is_excluded_from_recursive_scan(self):
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
             music = Path(folder)
